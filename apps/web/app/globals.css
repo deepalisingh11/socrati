@@ -1,50 +1,39 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  --sb: #e2d9c8;
+  --sb1: #d5c9b4;
+  --sb2: #c8baa2;
+  --main: #faf7f0;
+  --card: #ffffff;
+  --b1: #e8e0d0;
+  --b2: #d4c8b4;
+  --acc: #5c8c6e;
+  --acc1: #4a7259;
+  --acl: #e4f0e8;
+  --acl2: #d0e8d8;
+  --td: #1e2820;
+  --t1: #3a4c3e;
+  --t2: #6a7d6e;
+  --t3: #9aaa9c;
+  --hint: #eef6f0;
+  --hintb: #c8dece;
+  --foot: #f2ede0;
 }
 
 html,
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.imgDark {
-  display: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
-
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
-  }
+  height: 100%;
+  font-family: 'Instrument Sans', system-ui, sans-serif;
+  background: var(--main);
+  color: var(--td);
+  -webkit-font-smoothing: antialiased;
 }
