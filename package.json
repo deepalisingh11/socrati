@@ -9,7 +9,9 @@
     "check-types": "turbo run check-types"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
     "prettier": "^3.7.4",
+    "prisma": "^7.7.0",
     "turbo": "^2.9.3",
     "typescript": "5.9.2"
   },
@@ -20,5 +22,10 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.7.0",
+    "@prisma/client": "^7.7.0",
+    "pg": "^8.20.0"
+  }
 }
