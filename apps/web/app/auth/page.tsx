@@ -1,16 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import React, { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
+import { signupSchema, loginSchema, type SignupFormData, type LoginFormData } from '@/lib/schemas/auth';
 
 export default function AuthPage() {
-    const [tab, setTab] = useState<'login' | 'signup'>('login');
+    return (
+        <Suspense>
+            <AuthContent />
+        </Suspense>
+    );
+}
 
-    // TODO: wire to Supabase
-    // import { createClient } from '@/lib/supabase/client'
-    // const supabase = createClient()
-    // await supabase.auth.signInWithPassword({ email, password })
-    // await supabase.auth.signUp({ email, password })
-    // await supabase.auth.signInWithOAuth({ provider: 'google' })
+function AuthContent() {
+    const [tab, setTab] = useState<'login' | 'signup'>('login');
+    const searchParams = useSearchParams();
+    const urlError = searchParams.get('error');
 
     return (
         <div style={{
@@ -50,15 +56,10 @@ export default function AuthPage() {
                         </div>
                     </div>
                     <div>
-                        <div style={{
-                            fontSize: 14, fontStyle: 'italic', fontWeight: 400,
-                            color: 'var(--t1)', lineHeight: 1.75,
-                        }}>
+                        <div style={{ fontSize: 14, fontStyle: 'italic', fontWeight: 400, color: 'var(--t1)', lineHeight: 1.75 }}>
                             "Tell me and I forget. Teach me and I remember. Involve me and I learn."
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 9 }}>
-                            — Benjamin Franklin
-                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 9 }}>— Benjamin Franklin</div>
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--t3)' }}>
                         UMass · Five College Community
@@ -74,6 +75,10 @@ export default function AuthPage() {
                     flexDirection: 'column',
                     justifyContent: 'center',
                 }}>
+                    {urlError && (
+                        <ErrorBanner message={decodeURIComponent(urlError)} style={{ marginBottom: 16 }} />
+                    )}
+
                     {/* Tabs */}
                     <div style={{ display: 'flex', borderBottom: '1px solid var(--b1)', marginBottom: 24 }}>
                         {(['login', 'signup'] as const).map((t, i) => (
@@ -98,43 +103,78 @@ export default function AuthPage() {
                         ))}
                     </div>
 
-                    {tab === 'login' ? (
-                        <LoginForm />
-                    ) : (
-                        <SignupForm />
-                    )}
+                    {tab === 'login' ? <LoginForm /> : <SignupForm />}
                 </div>
             </div>
         </div>
     );
 }
 
+// ── Login ────────────────────────────────────────────────────────────────────
+
 function LoginForm() {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
+    const [values, setValues] = useState<LoginFormData>({ email: '', password: '' });
+    const [fieldErrors, setFieldErrors] = useState<Partial<LoginFormData>>({});
+    const [submitError, setSubmitError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const router = useRouter();
+
+    const set = (k: keyof LoginFormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
+        setValues(v => ({ ...v, [k]: e.target.value }));
+        setFieldErrors(fe => ({ ...fe, [k]: undefined }));
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setSubmitError(null);
+
+        const result = loginSchema.safeParse(values);
+        if (!result.success) {
+            const flat = result.error.flatten().fieldErrors;
+            setFieldErrors({ email: flat.email?.[0], password: flat.password?.[0] });
+            return;
+        }
+
         setLoading(true);
-        // TODO: await supabase.auth.signInWithPassword({ email, password })
-        console.log('sign in', { email, password });
-        setLoading(false);
+        const supabase = createClient();
+        const { error } = await supabase.auth.signInWithPassword(result.data);
+
+        if (error) {
+            setSubmitError(error.message);
+            setLoading(false);
+            return;
+        }
+
+        router.push('/session/new');
+        router.refresh();
     };
 
     return (
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
             <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--td)', marginBottom: 4, letterSpacing: '-0.2px' }}>
                 Welcome back
             </div>
             <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 20 }}>
                 Sign in with your institutional email
             </div>
-            <Field label="Email">
-                <input type="email" placeholder="you@umass.edu" value={email} onChange={e => setEmail(e.target.value)} required />
+            {submitError && <ErrorBanner message={submitError} />}
+            <Field label="Email" error={fieldErrors.email}>
+                <input
+                    type="email"
+                    placeholder="you@umass.edu"
+                    value={values.email}
+                    onChange={set('email')}
+                    autoComplete="email"
+                />
             </Field>
-            <Field label="Password">
-                <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required />
+            <Field label="Password" error={fieldErrors.password}>
+                <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={values.password}
+                    onChange={set('password')}
+                    autoComplete="current-password"
+                />
             </Field>
             <SubmitBtn loading={loading}>Sign in</SubmitBtn>
             <Divider />
@@ -143,36 +183,99 @@ function LoginForm() {
     );
 }
 
+// ── Signup ───────────────────────────────────────────────────────────────────
+
 function SignupForm() {
-    const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
+    const [values, setValues] = useState<SignupFormData>({ name: '', email: '', password: '' });
+    const [fieldErrors, setFieldErrors] = useState<Partial<SignupFormData>>({});
+    const [submitError, setSubmitError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const router = useRouter();
+
+    const set = (k: keyof SignupFormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
+        setValues(v => ({ ...v, [k]: e.target.value }));
+        setFieldErrors(fe => ({ ...fe, [k]: undefined }));
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setSubmitError(null);
+
+        const result = signupSchema.safeParse(values);
+        if (!result.success) {
+            const flat = result.error.flatten().fieldErrors;
+            setFieldErrors({
+                name: flat.name?.[0],
+                email: flat.email?.[0],
+                password: flat.password?.[0],
+            });
+            return;
+        }
+
         setLoading(true);
-        // TODO: await supabase.auth.signUp({ email, password, options: { data: { name } } })
-        console.log('sign up', { name, email, password });
-        setLoading(false);
+        const supabase = createClient();
+        const { data, error } = await supabase.auth.signUp({
+            email: result.data.email,
+            password: result.data.password,
+            options: {
+                data: { name: result.data.name },
+                emailRedirectTo: `${window.location.origin}/auth/callback`,
+            },
+        });
+
+        if (error) {
+            setSubmitError(error.message);
+            setLoading(false);
+            return;
+        }
+
+        // session is null when email confirmation is required (Supabase default)
+        if (data.session) {
+            router.push('/session/new');
+        } else {
+            router.push('/auth/verify-email');
+        }
     };
 
     return (
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
             <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--td)', marginBottom: 4, letterSpacing: '-0.2px' }}>
                 Create account
             </div>
             <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 20 }}>
                 Join with your institutional email
             </div>
-            <Field label="Full name">
-                <input type="text" placeholder="Your name" value={name} onChange={e => setName(e.target.value)} required />
+            {submitError && <ErrorBanner message={submitError} />}
+            <Field label="Full name" error={fieldErrors.name}>
+                <input
+                    type="text"
+                    placeholder="Your name"
+                    value={values.name}
+                    onChange={set('name')}
+                    autoComplete="name"
+                />
             </Field>
-            <Field label="Email" note="Must be a @umass.edu or Five College address">
-                <input type="email" placeholder="you@umass.edu" value={email} onChange={e => setEmail(e.target.value)} required />
+            <Field
+                label="Email"
+                error={fieldErrors.email}
+                note={!fieldErrors.email ? 'Must be a @umass.edu or Five College address' : undefined}
+            >
+                <input
+                    type="email"
+                    placeholder="you@umass.edu"
+                    value={values.email}
+                    onChange={set('email')}
+                    autoComplete="email"
+                />
             </Field>
-            <Field label="Password">
-                <input type="password" placeholder="At least 8 characters" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} />
+            <Field label="Password" error={fieldErrors.password}>
+                <input
+                    type="password"
+                    placeholder="Min 8 chars, one uppercase, one number"
+                    value={values.password}
+                    onChange={set('password')}
+                    autoComplete="new-password"
+                />
             </Field>
             <SubmitBtn loading={loading}>Create account</SubmitBtn>
             <Divider />
@@ -181,65 +284,21 @@ function SignupForm() {
     );
 }
 
-function Field({ label, note, children }: { label: string; note?: string; children: React.ReactNode }) {
-    return (
-        <div style={{ marginBottom: 13 }}>
-            <label style={{ fontSize: 11, color: 'var(--t2)', display: 'block', marginBottom: 4, fontWeight: 500 }}>
-                {label}
-            </label>
-            <style>{`
-        .auth-input {
-          width: 100%; height: 38px; padding: 0 12px;
-          border: 1px solid var(--b1); border-radius: 8px;
-          font-family: inherit; font-size: 13px;
-          background: var(--card); color: var(--td); outline: none;
-        }
-        .auth-input:focus { border-color: var(--acc); }
-      `}</style>
-            {/* Clone input with className */}
-            <div style={{ display: 'contents' }}>
-                {children && React.cloneElement(children as React.ReactElement<any>, { className: 'auth-input' })}
-            </div>
-            {note && <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 3 }}>{note}</div>}
-        </div>
-    );
-}
-
-function SubmitBtn({ loading, children }: { loading: boolean; children: React.ReactNode }) {
-    return (
-        <button
-            type="submit"
-            disabled={loading}
-            style={{
-                width: '100%', height: 40, background: loading ? 'var(--acc1)' : 'var(--acc)',
-                color: '#eef8f2', border: 'none', borderRadius: 9,
-                fontFamily: 'inherit', fontSize: 13, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
-                marginTop: 4, transition: 'background 0.15s',
-            }}
-        >
-            {loading ? 'Loading...' : children}
-        </button>
-    );
-}
-
-function Divider() {
-    return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0' }}>
-            <div style={{ flex: 1, height: 1, background: 'var(--b1)' }} />
-            <div style={{ fontSize: 11, color: 'var(--t3)' }}>or</div>
-            <div style={{ flex: 1, height: 1, background: 'var(--b1)' }} />
-        </div>
-    );
-}
+// ── Shared UI ────────────────────────────────────────────────────────────────
 
 function GoogleBtn() {
+    const handleGoogle = async () => {
+        const supabase = createClient();
+        await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: `${window.location.origin}/auth/callback` },
+        });
+    };
+
     return (
         <button
             type="button"
-            onClick={() => {
-                // TODO: await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: '/session/new' } })
-                console.log('google oauth');
-            }}
+            onClick={handleGoogle}
             style={{
                 width: '100%', height: 38, background: 'var(--card)',
                 border: '1px solid var(--b1)', borderRadius: 9,
@@ -258,5 +317,79 @@ function GoogleBtn() {
     );
 }
 
-// Need React import for cloneElement
-import React from 'react';
+function Field({ label, note, error, children }: {
+    label: string;
+    note?: string;
+    error?: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <div style={{ marginBottom: 13 }}>
+            <label style={{ fontSize: 11, color: 'var(--t2)', display: 'block', marginBottom: 4, fontWeight: 500 }}>
+                {label}
+            </label>
+            <style>{`
+        .auth-input {
+          width: 100%; height: 38px; padding: 0 12px;
+          border: 1px solid var(--b1); border-radius: 8px;
+          font-family: inherit; font-size: 13px;
+          background: var(--card); color: var(--td); outline: none;
+          box-sizing: border-box;
+        }
+        .auth-input:focus { border-color: var(--acc); }
+        .auth-input.input-error { border-color: #e05c4a; background: #fff9f8; }
+      `}</style>
+            <div style={{ display: 'contents' }}>
+                {React.cloneElement(children as React.ReactElement<{ className?: string }>, {
+                    className: `auth-input${error ? ' input-error' : ''}`,
+                })}
+            </div>
+            {error
+                ? <div style={{ fontSize: 10, color: '#c0392b', marginTop: 3 }}>{error}</div>
+                : note && <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 3 }}>{note}</div>
+            }
+        </div>
+    );
+}
+
+function ErrorBanner({ message, style: extraStyle }: { message: string; style?: React.CSSProperties }) {
+    return (
+        <div style={{
+            background: '#fef0ee', border: '1px solid #f5c6c0',
+            borderRadius: 8, padding: '9px 12px',
+            fontSize: 12, color: '#7a2a22', marginBottom: 14,
+            ...extraStyle,
+        }}>
+            {message}
+        </div>
+    );
+}
+
+function SubmitBtn({ loading, children }: { loading: boolean; children: React.ReactNode }) {
+    return (
+        <button
+            type="submit"
+            disabled={loading}
+            style={{
+                width: '100%', height: 40,
+                background: loading ? 'var(--acc1)' : 'var(--acc)',
+                color: '#eef8f2', border: 'none', borderRadius: 9,
+                fontFamily: 'inherit', fontSize: 13, fontWeight: 500,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                marginTop: 4, transition: 'background 0.15s',
+            }}
+        >
+            {loading ? 'Loading...' : children}
+        </button>
+    );
+}
+
+function Divider() {
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0' }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--b1)' }} />
+            <div style={{ fontSize: 11, color: 'var(--t3)' }}>or</div>
+            <div style={{ flex: 1, height: 1, background: 'var(--b1)' }} />
+        </div>
+    );
+}
