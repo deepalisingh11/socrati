@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 // import Sidebar from '../../components/Sidebar';
 
@@ -8,11 +8,11 @@ type ParseStatus = 'uploading' | 'processing' | 'ready' | 'failed';
 
 interface UploadedDoc {
     id: string;
-    file: File;
+    file?: File;
     name: string;
     sizeMb: string;
     status: ParseStatus;
-    documentId?: string; // returned by backend after upload
+    documentId?: string;
     errorMsg?: string;
 }
 
@@ -65,8 +65,49 @@ export default function NewSessionPage() {
                 es.close();
             };
         },
+        // updateDoc is stable (functional setDocs updater) — no re-subscription needed
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [],
     );
+
+    // ── Load persisted documents on mount ─────────────────────────────────────
+    // RLS on the documents table ensures only the authenticated user's rows are returned.
+    useEffect(() => {
+        fetch('/api/documents')
+            .then(res => {
+                if (!res.ok) return;
+                return res.json() as Promise<{
+                    documents: Array<{
+                        document_id: string;
+                        title: string;
+                        parse_status: string;
+                        uploaded_at: string;
+                    }>;
+                }>;
+            })
+            .then(body => {
+                if (!body) return;
+                const loaded: UploadedDoc[] = body.documents.map(doc => ({
+                    id: doc.document_id,
+                    name: doc.title,
+                    sizeMb: '-',
+                    status: (doc.parse_status === 'ready' || doc.parse_status === 'failed'
+                        ? doc.parse_status
+                        : 'processing') as ParseStatus,
+                    documentId: doc.document_id,
+                }));
+                setDocs(loaded);
+                // Reattach SSE for any doc still in the pipeline so the UI updates when done
+                for (const doc of loaded) {
+                    if (doc.status === 'processing' && doc.documentId) {
+                        listenForStatus(doc.id, doc.documentId);
+                    }
+                }
+            })
+            .catch(() => {
+                // silently ignore — user can still upload new files
+            });
+    }, [listenForStatus]);
 
     // ── File upload ───────────────────────────────────────────────────────────
     const uploadFile = useCallback(
