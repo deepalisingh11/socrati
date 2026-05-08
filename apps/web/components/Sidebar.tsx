@@ -1,7 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { handleSignOut, handleSessionExpiry, getInitials, getShortName } from '@/lib/auth';
 
 const NAV = [
     {
@@ -38,6 +41,43 @@ const NAV = [
 
 export default function Sidebar() {
     const pathname = usePathname();
+    const router = useRouter();
+    const [displayName, setDisplayName] = useState('');
+    const [email, setEmail] = useState('');
+
+    useEffect(() => {
+        const supabase = createClient();
+
+        supabase.auth.getUser().then(({ data }) => {
+            if (data.user) {
+                const name = data.user.user_metadata?.name ?? data.user.user_metadata?.full_name ?? '';
+                setDisplayName(name);
+                setEmail(data.user.email ?? '');
+            }
+        });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+            if (event === 'SIGNED_OUT') {
+                handleSessionExpiry({ redirect: (p) => router.push(p), log: console.log });
+            }
+        });
+
+        return () => subscription.unsubscribe();
+    }, [router]);
+
+    const handleLogout = () => handleSignOut({
+        signOut: () => createClient().auth.signOut(),
+        redirect: (p) => router.push(p),
+        log: console.log,
+    });
+
+    const initials = displayName
+        ? getInitials(displayName)
+        : email
+            ? email.slice(0, 2).toUpperCase()
+            : '??';
+
+    const shortName = displayName ? getShortName(displayName) : email;
 
     return (
         <aside style={{
@@ -89,10 +129,34 @@ export default function Sidebar() {
 
             <div style={{ flex: 1 }} />
 
-            {/* Settings */}
-            <div style={{ fontSize: 11, color: 'var(--t2)', padding: '7px 10px 4px', borderTop: '1px solid var(--sb1)' }}>
-                Settings
-            </div>
+            {/* Sign out */}
+            <button
+                onClick={handleLogout}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 11,
+                    color: 'var(--t2)',
+                    padding: '7px 10px',
+                    borderTop: '1px solid var(--sb1)',
+                    borderLeft: 'none',
+                    borderRight: 'none',
+                    borderBottom: 'none',
+                    borderRadius: 0,
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    width: '100%',
+                    textAlign: 'left',
+                }}
+            >
+                <svg viewBox="0 0 14 14" fill="none" width={13} height={13} style={{ opacity: 0.6, flexShrink: 0 }}>
+                    <path d="M5 2H2.5A.5.5 0 002 2.5v9a.5.5 0 00.5.5H5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                    <path d="M9.5 9.5L12 7l-2.5-2.5M12 7H5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Sign out
+            </button>
 
             {/* User */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 6px 0' }}>
@@ -101,11 +165,15 @@ export default function Sidebar() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 10, fontWeight: 600, color: '#eef8f2', flexShrink: 0,
                 }}>
-                    DS
+                    {initials}
                 </div>
-                <div>
-                    <div style={{ fontSize: 12, color: 'var(--t1)', fontWeight: 500 }}>Deepali S.</div>
-                    <div style={{ fontSize: 10, color: 'var(--t3)' }}>deepali@umass.edu</div>
+                <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: 'var(--t1)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {shortName || '…'}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--t3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {email || '…'}
+                    </div>
                 </div>
             </div>
         </aside>
