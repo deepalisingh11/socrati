@@ -6,7 +6,28 @@ import { logDocumentError, logDocumentEvent } from './document-logger';
 import type { EmbeddedChunk } from './embedder';
 import { loadEnvFiles } from './load-env';
 
+// ── Public types ───────────────────────────────────────────────────────────
+
 export type ParseStatus = 'pending' | 'processing' | 'ready' | 'failed';
+
+type DbError = { message: string };
+
+type DbTableRef = {
+    insert(
+        rows: Record<string, unknown> | Record<string, unknown>[],
+    ): Promise<{ error: DbError | null }>;
+    update(row: Record<string, unknown>): {
+        eq(col: string, val: string): Promise<{ error: DbError | null }>;
+    };
+};
+
+export type RepositoryClient = {
+    from(table: string): DbTableRef;
+};
+
+export type RepositoryClientFactory = (accessToken?: string) => RepositoryClient;
+
+// ── Supabase client helpers (used by the default factory) ─────────────────
 
 let serviceClient: SupabaseClient | undefined;
 
@@ -16,179 +37,163 @@ const realtimeOptions = {
 
 function getSupabaseUrl() {
     loadEnvFiles();
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-    if (!supabaseUrl) {
-        throw new Error('NEXT_PUBLIC_SUPABASE_URL is missing.');
-    }
-
-    return supabaseUrl;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL is missing.');
+    return url;
 }
 
 function getServiceClient() {
     loadEnvFiles();
-
     if (serviceClient) return serviceClient;
-
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!serviceRoleKey) {
-        throw new Error(
-            'SUPABASE_SERVICE_ROLE_KEY is missing.',
-        );
-    }
-
-    serviceClient = createClient(getSupabaseUrl(), serviceRoleKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-        },
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is missing.');
+    serviceClient = createClient(getSupabaseUrl(), key, {
+        auth: { persistSession: false, autoRefreshToken: false },
         realtime: realtimeOptions,
     });
-
     return serviceClient;
 }
 
-function getUserClient(accessToken: string) {
+function getUserClient(accessToken: string): SupabaseClient {
     loadEnvFiles();
-
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!anonKey) {
-        throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is missing.');
-    }
-
+    if (!anonKey) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is missing.');
     return createClient(getSupabaseUrl(), anonKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-        },
+        auth: { persistSession: false, autoRefreshToken: false },
         realtime: realtimeOptions,
-        global: {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-            },
-        },
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
     });
 }
 
-function getWriteClient(accessToken?: string) {
-    if (accessToken) {
-        return getUserClient(accessToken);
+// ── Repository factory ─────────────────────────────────────────────────────
+//
+// Accepts an injectable client factory so callers (and tests) can supply
+// their own Supabase client without touching module-level singletons.
+
+export function createRepository(clientFactory: RepositoryClientFactory) {
+    async function createDocument(params: {
+        id: string;
+        userId: string;
+        title: string;
+        fileType: string;
+    }) {
+        logDocumentEvent('repository', 'creating document', {
+            documentId: params.id,
+            userId: params.userId,
+        });
+
+        const { error } = await clientFactory().from('documents').insert({
+            document_id: params.id,
+            user_id: params.userId,
+            title: params.title,
+            file_type: params.fileType,
+            parse_status: 'pending',
+        });
+
+        if (error) {
+            logDocumentError('repository', 'create document failed', error, {
+                documentId: params.id,
+                userId: params.userId,
+            });
+            throw new Error(`createDocument failed: ${error.message}`);
+        }
+
+        logDocumentEvent('repository', 'document created', { documentId: params.id });
     }
 
-    return getServiceClient();
-}
-
-export async function createDocument(params: {
-    id: string;
-    userId: string;
-    title: string;
-    fileType: string;
-}) {
-    const { error } = await getServiceClient().from('documents').insert({
-        document_id: params.id,
-        user_id: params.userId,
-        title: params.title,
-        file_type: params.fileType,
-        parse_status: 'pending',
-    });
-
-    if (error) {
-        throw new Error(`createDocument failed: ${error.message}`);
-    }
-}
-
-export async function updateParseStatus(
-    documentId: string,
-    status: ParseStatus,
-    errorMessage?: string,
-    accessToken?: string,
-) {
-    logDocumentEvent('repository', 'updating parse status', {
-        documentId,
-        status,
-        hasAccessToken: Boolean(accessToken),
-    });
-
-    const { error } = await getWriteClient(accessToken)
-        .from('documents')
-        .update({
-            parse_status: status,
-            error_message: errorMessage ?? null,
-        })
-        .eq('document_id', documentId);
-
-    if (error) {
-        logDocumentError('repository', 'update parse status failed', error, {
+    async function updateParseStatus(
+        documentId: string,
+        status: ParseStatus,
+        errorMessage?: string,
+        accessToken?: string,
+    ) {
+        logDocumentEvent('repository', 'updating parse status', {
             documentId,
             status,
+            hasAccessToken: Boolean(accessToken),
         });
-        throw new Error(`updateParseStatus failed: ${error.message}`);
+
+        const { error } = await clientFactory(accessToken)
+            .from('documents')
+            .update({ parse_status: status, error_message: errorMessage ?? null })
+            .eq('document_id', documentId);
+
+        if (error) {
+            logDocumentError('repository', 'update parse status failed', error, {
+                documentId,
+                status,
+            });
+            throw new Error(`updateParseStatus failed: ${error.message}`);
+        }
+
+        logDocumentEvent('repository', 'parse status updated', { documentId, status });
     }
 
-    logDocumentEvent('repository', 'parse status updated', {
-        documentId,
-        status,
-    });
-}
+    async function saveChunksForUser(
+        documentId: string,
+        chunks: EmbeddedChunk[],
+        accessToken: string,
+    ) {
+        if (chunks.length === 0) return;
 
-export async function saveChunks(documentId: string, chunks: EmbeddedChunk[]) {
-    if (chunks.length === 0) return;
+        logDocumentEvent('repository', 'saving chunks for user', {
+            documentId,
+            chunkCount: chunks.length,
+            embeddingDimensions: chunks[0]?.embedding.length ?? 0,
+        });
 
-    const rows = chunks.map((chunk) => ({
-        document_id: documentId,
-        chunk_index: chunk.chunkIndex,
-        content: chunk.content,
-        heading: chunk.heading,
-        key_terms: chunk.keyTerms,
-        embedding: chunk.embedding,
-    }));
+        const rows = chunks.map((chunk) => ({
+            document_id: documentId,
+            chunk_index: chunk.chunkIndex,
+            content: chunk.content,
+            heading: chunk.heading ?? null,
+            key_terms: chunk.keyTerms,
+            // pgvector requires a JSON string "[v1,v2,...]" — not a raw JS array.
+            embedding: JSON.stringify(chunk.embedding),
+        }));
 
-    const { error } = await getWriteClient().from('document_chunks').insert(rows);
+        const { error } = await clientFactory(accessToken || undefined)
+            .from('document_chunks')
+            .insert(rows);
 
-    if (error) {
-        throw new Error(`saveChunks failed: ${error.message}`);
-    }
-}
+        if (error) {
+            logDocumentError('repository', 'save chunks failed', error, {
+                documentId,
+                chunkCount: chunks.length,
+            });
+            throw new Error(`saveChunks failed: ${error.message}`);
+        }
 
-export async function saveChunksForUser(
-    documentId: string,
-    chunks: EmbeddedChunk[],
-    accessToken: string,
-) {
-    if (chunks.length === 0) return;
-
-    logDocumentEvent('repository', 'saving chunks for user', {
-        documentId,
-        chunkCount: chunks.length,
-        embeddingDimensions: chunks[0]?.embedding.length ?? 0,
-    });
-
-    const rows = chunks.map((chunk) => ({
-        document_id: documentId,
-        chunk_index: chunk.chunkIndex,
-        content: chunk.content,
-        heading: chunk.heading,
-        key_terms: chunk.keyTerms,
-        embedding: chunk.embedding,
-    }));
-
-    const { error } = await getWriteClient(accessToken)
-        .from('document_chunks')
-        .insert(rows);
-
-    if (error) {
-        logDocumentError('repository', 'save chunks failed', error, {
+        logDocumentEvent('repository', 'chunks saved for user', {
             documentId,
             chunkCount: chunks.length,
         });
-        throw new Error(`saveChunks failed: ${error.message}`);
     }
 
-    logDocumentEvent('repository', 'chunks saved for user', {
-        documentId,
-        chunkCount: chunks.length,
-    });
+    async function saveChunks(documentId: string, chunks: EmbeddedChunk[]) {
+        return saveChunksForUser(documentId, chunks, '');
+    }
+
+    return { createDocument, updateParseStatus, saveChunksForUser, saveChunks };
 }
+
+// ── Default module-level exports (use real Supabase clients) ───────────────
+//
+// Supabase returns PostgrestFilterBuilder (PromiseLike, not Promise), so we
+// wrap the client to match the RepositoryClient interface.
+
+function wrapSupabaseClient(supabase: SupabaseClient): RepositoryClient {
+    return {
+        from: (table) => supabase.from(table) as unknown as ReturnType<RepositoryClient['from']>,
+    };
+}
+
+const defaultRepo = createRepository(
+    (accessToken) =>
+        wrapSupabaseClient(accessToken ? getUserClient(accessToken) : getServiceClient()),
+);
+
+export const createDocument = defaultRepo.createDocument;
+export const updateParseStatus = defaultRepo.updateParseStatus;
+export const saveChunksForUser = defaultRepo.saveChunksForUser;
+export const saveChunks = defaultRepo.saveChunks;
