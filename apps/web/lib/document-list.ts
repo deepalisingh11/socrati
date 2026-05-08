@@ -43,6 +43,10 @@ export async function handleDocumentList(
     _req: Request,
     deps: ListDependencies,
 ) {
+    const startedAt = Date.now();
+
+    logDocumentEvent('list', 'request received');
+
     const supabase = await deps.createSupabaseClient();
     const {
         data: { user },
@@ -53,6 +57,7 @@ export async function handleDocumentList(
         logDocumentEvent('list', 'unauthorized request', {
             hasAuthError: Boolean(authError),
             hasUser: Boolean(user),
+            elapsedMs: Date.now() - startedAt,
         });
         return Response.json({ message: 'Unauthorized' }, { status: 401 });
     }
@@ -65,14 +70,25 @@ export async function handleDocumentList(
         .order('uploaded_at', { ascending: false });
 
     if (queryError) {
-        logDocumentError('list', 'query failed', queryError, { userId: user.id });
+        logDocumentError('list', 'query failed', queryError, {
+            userId: user.id,
+            elapsedMs: Date.now() - startedAt,
+        });
         return Response.json({ message: queryError.message }, { status: 500 });
     }
 
+    const docs = documents ?? [];
+    const statusCounts = docs.reduce<Record<string, number>>((acc, doc) => {
+        acc[doc.parse_status] = (acc[doc.parse_status] ?? 0) + 1;
+        return acc;
+    }, {});
+
     logDocumentEvent('list', 'documents fetched', {
         userId: user.id,
-        count: documents?.length ?? 0,
+        count: docs.length,
+        statusCounts,
+        elapsedMs: Date.now() - startedAt,
     });
 
-    return Response.json({ documents: documents ?? [] });
+    return Response.json({ documents: docs });
 }
