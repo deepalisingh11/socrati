@@ -1,4 +1,6 @@
 import { NextRequest } from 'next/server';
+import { logDocumentError, logDocumentEvent } from '@/lib/document-logger';
+import { getDocumentQueueHealth } from '@/lib/queue';
 import { createClient } from '@/lib/supabase/server';
 
 type ParseStatus = 'pending' | 'processing' | 'ready' | 'failed';
@@ -9,6 +11,7 @@ export async function GET(
 ) {
     const { id: documentId } = await params;
     const supabase = await createClient();
+    let pollCount = 0;
     let interval: ReturnType<typeof setInterval> | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
@@ -25,6 +28,13 @@ export async function GET(
                 if (interval) clearInterval(interval);
                 if (timeout) clearTimeout(timeout);
 
+                logDocumentEvent('stream', 'closing stream', {
+                    documentId,
+                    status,
+                    error,
+                    pollCount,
+                });
+
                 const data = JSON.stringify({ status, ...(error ? { error } : {}) });
                 controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 controller.close();
@@ -32,6 +42,7 @@ export async function GET(
 
             const poll = async () => {
                 try {
+                    pollCount += 1;
                     const { data, error } = await supabase
                         .from('documents')
                         .select('parse_status, error_message')
@@ -39,11 +50,45 @@ export async function GET(
                         .single();
 
                     if (error) {
+                        logDocumentError('stream', 'status poll failed', error, {
+                            documentId,
+                            pollCount,
+                        });
                         sendAndClose('failed', error.message);
                         return;
                     }
 
                     const status = data.parse_status as ParseStatus;
+                    logDocumentEvent('stream', 'status polled', {
+                        documentId,
+                        status,
+                        pollCount,
+                    });
+
+                    if (status === 'pending' && pollCount >= 15) {
+                        const health = await getDocumentQueueHealth();
+                        logDocumentEvent('stream', 'pending queue health checked', {
+                            documentId,
+                            pollCount,
+                            workerCount: health.workerCount,
+                            jobCounts: health.jobCounts,
+                        });
+
+                        if (health.workerCount === 0) {
+                            const message =
+                                'Document worker is not connected. Start it with `npm run worker -w apps/web`.';
+
+                            await supabase
+                                .from('documents')
+                                .update({
+                                    parse_status: 'failed',
+                                    error_message: message,
+                                })
+                                .eq('document_id', documentId);
+
+                            sendAndClose('failed', message);
+                        }
+                    }
 
                     if (status === 'ready') {
                         sendAndClose('ready');
@@ -54,11 +99,19 @@ export async function GET(
                     }
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : 'Status check failed';
+                    logDocumentError('stream', 'status poll threw', err, {
+                        documentId,
+                        pollCount,
+                    });
                     sendAndClose('failed', msg);
                 }
             };
 
             timeout = setTimeout(() => {
+                logDocumentEvent('stream', 'stream timed out', {
+                    documentId,
+                    pollCount,
+                });
                 sendAndClose('failed', 'Processing timed out');
             }, 5 * 60 * 1000);
 
@@ -69,6 +122,10 @@ export async function GET(
             closed = true;
             if (interval) clearInterval(interval);
             if (timeout) clearTimeout(timeout);
+            logDocumentEvent('stream', 'client disconnected', {
+                documentId,
+                pollCount,
+            });
         },
     });
 

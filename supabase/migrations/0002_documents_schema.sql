@@ -2,11 +2,26 @@
 create extension if not exists vector;             -- pgvector for embeddings
 
 -- ── 1. Align users table with data model (id → user_id) ─────────────────────
-alter table public.users rename column id to user_id;
+do $$
+begin
+    if exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'users'
+          and column_name = 'id'
+    ) and not exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'users'
+          and column_name = 'user_id'
+    ) then
+        alter table public.users rename column id to user_id;
+    end if;
+end $$;
 
 -- Re-create RLS policies that referenced the old column name
-drop policy "users: select own" on public.users;
-drop policy "users: update own" on public.users;
+drop policy if exists "users: select own" on public.users;
+drop policy if exists "users: update own" on public.users;
 
 create policy "users: select own"
     on public.users for select
@@ -29,13 +44,15 @@ begin
         new.id,
         new.email,
         new.raw_user_meta_data ->> 'name'
-    );
+    )
+    on conflict (user_id) do nothing;
+
     return new;
 end;
 $$;
 
 -- ── 2. documents ─────────────────────────────────────────────────────────────
-create table public.documents (
+create table if not exists public.documents (
     document_id  uuid        primary key default gen_random_uuid(),
     user_id      uuid        not null references public.users (user_id) on delete cascade,
     title        text        not null,
@@ -44,6 +61,11 @@ create table public.documents (
 );
 
 alter table public.documents enable row level security;
+
+drop policy if exists "documents: select own" on public.documents;
+drop policy if exists "documents: insert own" on public.documents;
+drop policy if exists "documents: update own" on public.documents;
+drop policy if exists "documents: delete own" on public.documents;
 
 create policy "documents: select own"
     on public.documents for select
@@ -64,7 +86,7 @@ create policy "documents: delete own"
 -- ── 3. document_chunks ───────────────────────────────────────────────────────
 -- embedding dimension 1536 = OpenAI text-embedding-3-small / ada-002
 -- change to 3072 if using text-embedding-3-large
-create table public.document_chunks (
+create table if not exists public.document_chunks (
     chunk_id     uuid        primary key default gen_random_uuid(),
     document_id  uuid        not null references public.documents (document_id) on delete cascade,
     chunk_index  int         not null,
@@ -74,6 +96,9 @@ create table public.document_chunks (
 );
 
 alter table public.document_chunks enable row level security;
+
+drop policy if exists "document_chunks: select via owner" on public.document_chunks;
+drop policy if exists "document_chunks: insert via owner" on public.document_chunks;
 
 -- Chunks inherit access from their parent document's owner
 create policy "document_chunks: select via owner"
@@ -96,10 +121,4 @@ create policy "document_chunks: insert via owner"
         )
     );
 
--- ── 4. Vector similarity index ───────────────────────────────────────────────
--- ivfflat with cosine distance; lists = 100 suits up to ~1 M rows.
--- Re-create with a higher lists value as the dataset grows.
-create index document_chunks_embedding_idx
-    on public.document_chunks
-    using ivfflat (embedding vector_cosine_ops)
-    with (lists = 100);
+-- Vector indexes are added in later migrations once the embedding dimension is final.

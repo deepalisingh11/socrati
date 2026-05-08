@@ -6,6 +6,7 @@ export type DocumentJobData = {
     fileBase64: string;
     fileName: string;
     fileType: string;
+    userAccessToken: string;
     userId: string;
 };
 
@@ -32,4 +33,22 @@ export function getDocumentQueue() {
     });
 
     return documentQueue;
+}
+
+export async function getDocumentQueueHealth() {
+    const queue = getDocumentQueue();
+    const [jobCounts, workers] = await Promise.all([
+        queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed', 'paused'),
+        queue.getWorkers().catch(() => []),
+    ]);
+
+    return {
+        jobCounts,
+        workerCount: workers.length,
+        workers: workers.map((worker) => ({
+            id: worker.id,
+            name: worker.name,
+            addr: worker.addr,
+        })),
+    };
 }

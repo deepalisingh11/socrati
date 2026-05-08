@@ -13,7 +13,4 @@ alter table public.document_chunks
     alter column embedding type vector(3072)
     using embedding::vector(3072);
 
-create index if not exists document_chunks_embedding_idx
-    on public.document_chunks
-    using ivfflat (embedding vector_cosine_ops)
-    with (lists = 100);
+notify pgrst, 'reload schema';
