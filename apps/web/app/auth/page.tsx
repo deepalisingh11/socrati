@@ -3,6 +3,7 @@
 import React, { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { z } from 'zod';
 import { signupSchema, loginSchema, type SignupFormData, type LoginFormData } from '@/lib/schemas/auth';
 
 export default function AuthPage() {
@@ -110,6 +111,25 @@ function AuthContent() {
     );
 }
 
+// ── Error helpers ────────────────────────────────────────────────────────────
+
+function friendlyAuthError(message: string): string {
+    const m = message.toLowerCase();
+    if (m.includes('user already registered') || m.includes('already been registered'))
+        return 'An account with this email already exists. Try signing in instead.';
+    if (m.includes('invalid login credentials') || m.includes('invalid credentials'))
+        return 'Incorrect email or password.';
+    if (m.includes('email not confirmed'))
+        return 'Please confirm your email address before signing in. Check your inbox.';
+    if (m.includes('rate limit') || m.includes('too many requests') || m.includes('over_email_send_rate_limit'))
+        return 'Too many attempts. Please wait a moment and try again.';
+    if (m.includes('signup_disabled'))
+        return 'Registration is temporarily unavailable. Please try again later.';
+    if (m.includes('network') || m.includes('fetch'))
+        return 'Network error. Check your connection and try again.';
+    return message;
+}
+
 // ── Login ────────────────────────────────────────────────────────────────────
 
 function LoginForm() {
@@ -130,7 +150,7 @@ function LoginForm() {
 
         const result = loginSchema.safeParse(values);
         if (!result.success) {
-            const flat = result.error.flatten().fieldErrors;
+            const flat = z.flattenError(result.error).fieldErrors;
             setFieldErrors({ email: flat.email?.[0], password: flat.password?.[0] });
             return;
         }
@@ -140,7 +160,7 @@ function LoginForm() {
         const { error } = await supabase.auth.signInWithPassword(result.data);
 
         if (error) {
-            setSubmitError(error.message);
+            setSubmitError(friendlyAuthError(error.message));
             setLoading(false);
             return;
         }
@@ -203,7 +223,7 @@ function SignupForm() {
 
         const result = signupSchema.safeParse(values);
         if (!result.success) {
-            const flat = result.error.flatten().fieldErrors;
+            const flat = z.flattenError(result.error).fieldErrors;
             setFieldErrors({
                 name: flat.name?.[0],
                 email: flat.email?.[0],
@@ -224,7 +244,7 @@ function SignupForm() {
         });
 
         if (error) {
-            setSubmitError(error.message);
+            setSubmitError(friendlyAuthError(error.message));
             setLoading(false);
             return;
         }
@@ -258,7 +278,7 @@ function SignupForm() {
             <Field
                 label="Email"
                 error={fieldErrors.email}
-                note={!fieldErrors.email ? 'Must be a @umass.edu or Five College address' : undefined}
+                note={!fieldErrors.email ? 'Must be a @umass.edu address' : undefined}
             >
                 <input
                     type="email"

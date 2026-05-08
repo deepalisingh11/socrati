@@ -1,9 +1,5 @@
 export const ALLOWED_DOMAINS = [
     'umass.edu',
-    // 'smith.edu',
-    // 'hampshire.edu',
-    // 'mtholyoke.edu',
-    // 'amherst.edu',
 ] as const;
 
 export function isAllowedDomain(email: string): boolean {
