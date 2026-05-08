@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isAllowedDomain } from '@/lib/supabase/domains';
+import { isAllowedDomain } from '../supabase/domains';
 
 export const signupSchema = z.object({
     name: z.string().min(2, 'Name must be at least 2 characters'),
