@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 // import Sidebar from '../../components/Sidebar';
 
@@ -26,9 +27,12 @@ const ACCEPTED_EXT = '.pdf,.pptx,.txt';
 const MAX_MB = 25;
 
 export default function NewSessionPage() {
+    const router = useRouter();
     const [docs, setDocs] = useState<UploadedDoc[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [dragging, setDragging] = useState(false);
+    const [starting, setStarting] = useState(false);
+    const [startError, setStartError] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
     const updateDoc = (id: string, patch: Partial<UploadedDoc>) =>
@@ -186,15 +190,29 @@ export default function NewSessionPage() {
             .map(d => d.documentId!);
         if (selectedDocIds.length === 0) return;
 
-        // TODO: uncomment when sessions route exists
-        // const res = await fetch('/api/sessions', {
-        //   method: 'POST',
-        //   headers: { 'Content-Type': 'application/json' },
-        //   body: JSON.stringify({ documentIds: selectedDocIds }),
-        // });
-        // const { sessionId } = await res.json();
-        // router.push(`/sessions/${sessionId}`);
-        console.log('start session with docs:', selectedDocIds);
+        setStarting(true);
+        setStartError(null);
+
+        try {
+            const res = await fetch('/api/sessions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ documentIds: selectedDocIds }),
+            });
+
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({ message: 'Failed to start session' }));
+                setStartError((body as { message?: string }).message ?? 'Failed to start session');
+                return;
+            }
+
+            const { sessionId } = await res.json() as { sessionId: string };
+            router.push(`/sessions/${sessionId}`);
+        } catch {
+            setStartError('Network error — please try again');
+        } finally {
+            setStarting(false);
+        }
     };
 
     const readyCount = selected.size;
@@ -300,23 +318,38 @@ export default function NewSessionPage() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
+                        gap: 12,
                     }}>
-                        <span style={{ fontSize: 13, color: 'var(--t2)' }}>
-                            {readyCount} document{readyCount !== 1 ? 's' : ''} selected
-                        </span>
+                        <div>
+                            <span style={{ fontSize: 13, color: 'var(--t2)' }}>
+                                {readyCount} document{readyCount !== 1 ? 's' : ''} selected
+                            </span>
+                            {startError && (
+                                <span style={{ fontSize: 12, color: '#8a4a40', marginLeft: 10 }}>
+                                    {startError}
+                                </span>
+                            )}
+                        </div>
                         <button
                             onClick={handleStartSession}
+                            disabled={starting}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 7,
-                                background: 'var(--acc)', color: '#eef8f2',
+                                background: starting ? 'var(--hintb)' : 'var(--acc)',
+                                color: starting ? 'var(--t3)' : '#eef8f2',
                                 border: 'none', borderRadius: 9, padding: '9px 18px',
-                                fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+                                fontSize: 13, fontWeight: 500,
+                                cursor: starting ? 'not-allowed' : 'pointer',
+                                fontFamily: 'inherit',
+                                transition: 'background 0.15s',
                             }}
                         >
-                            Start session
-                            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                                <path d="M2.5 6.5h8M7 3l3.5 3.5L7 10" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
+                            {starting ? 'Starting…' : 'Start session'}
+                            {!starting && (
+                                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                                    <path d="M2.5 6.5h8M7 3l3.5 3.5L7 10" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                            )}
                         </button>
                     </div>
                 )}
