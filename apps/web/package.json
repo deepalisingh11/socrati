@@ -4,9 +4,11 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3000",
+    "dev": "tsx scripts/dev.ts",
+    "dev:next": "next dev --port 3000",
     "build": "next build",
     "start": "next start",
+    "worker": "tsx lib/worker.ts",
     "lint": "eslint --max-warnings 0",
     "check-types": "next typegen && tsc --noEmit"
   },
@@ -15,10 +17,13 @@
     "@repo/ui": "*",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.3",
+    "bullmq": "^5.76.6",
+    "ioredis": "^5.10.1",
     "next": "16.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "unpdf": "^1.4.0",
+    "ws": "^8.20.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -28,6 +33,7 @@
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "eslint": "^9.39.1",
+    "tsx": "^4.21.0",
     "typescript": "5.9.2"
   }
 }

@@ -1,11 +1,20 @@
 import { NextRequest } from 'next/server';
-import { waiters } from '@/lib/waiters';
+import { logDocumentError, logDocumentEvent } from '@/lib/document-logger';
+import { getDocumentQueueHealth } from '@/lib/queue';
+import { createClient } from '@/lib/supabase/server';
+
+type ParseStatus = 'pending' | 'processing' | 'ready' | 'failed';
 
 export async function GET(
     _req: NextRequest,
     { params }: { params: Promise<{ id: string }> },
 ) {
     const { id: documentId } = await params;
+    const supabase = await createClient();
+    let pollCount = 0;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
 
     const stream = new ReadableStream({
         start(controller) {
@@ -13,22 +22,110 @@ export async function GET(
 
             controller.enqueue(encoder.encode(': connected\n\n'));
 
-            const timeout = setTimeout(() => {
-                const data = JSON.stringify({ status: 'failed', error: 'Processing timed out' });
-                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-                controller.close();
-                waiters.delete(documentId);
-            }, 5 * 60 * 1000);
+            const sendAndClose = (status: 'ready' | 'failed', error?: string) => {
+                if (closed) return;
+                closed = true;
+                if (interval) clearInterval(interval);
+                if (timeout) clearTimeout(timeout);
 
-            waiters.set(documentId, ({ status, error }) => {
-                clearTimeout(timeout);
+                logDocumentEvent('stream', 'closing stream', {
+                    documentId,
+                    status,
+                    error,
+                    pollCount,
+                });
+
                 const data = JSON.stringify({ status, ...(error ? { error } : {}) });
                 controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                 controller.close();
-            });
+            };
+
+            const poll = async () => {
+                try {
+                    pollCount += 1;
+                    const { data, error } = await supabase
+                        .from('documents')
+                        .select('parse_status, error_message')
+                        .eq('document_id', documentId)
+                        .single();
+
+                    if (error) {
+                        logDocumentError('stream', 'status poll failed', error, {
+                            documentId,
+                            pollCount,
+                        });
+                        sendAndClose('failed', error.message);
+                        return;
+                    }
+
+                    const status = data.parse_status as ParseStatus;
+                    logDocumentEvent('stream', 'status polled', {
+                        documentId,
+                        status,
+                        pollCount,
+                    });
+
+                    if (status === 'pending' && pollCount >= 15) {
+                        const health = await getDocumentQueueHealth();
+                        logDocumentEvent('stream', 'pending queue health checked', {
+                            documentId,
+                            pollCount,
+                            workerCount: health.workerCount,
+                            jobCounts: health.jobCounts,
+                        });
+
+                        if (health.workerCount === 0) {
+                            const message =
+                                'Document worker is not connected. Start it with `npm run worker -w apps/web`.';
+
+                            await supabase
+                                .from('documents')
+                                .update({
+                                    parse_status: 'failed',
+                                    error_message: message,
+                                })
+                                .eq('document_id', documentId);
+
+                            sendAndClose('failed', message);
+                        }
+                    }
+
+                    if (status === 'ready') {
+                        sendAndClose('ready');
+                    }
+
+                    if (status === 'failed') {
+                        sendAndClose('failed', data.error_message ?? 'Processing failed');
+                    }
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : 'Status check failed';
+                    logDocumentError('stream', 'status poll threw', err, {
+                        documentId,
+                        pollCount,
+                    });
+                    sendAndClose('failed', msg);
+                }
+            };
+
+            timeout = setTimeout(() => {
+                logDocumentEvent('stream', 'stream timed out', {
+                    documentId,
+                    pollCount,
+                });
+                sendAndClose('failed', 'Processing timed out');
+            }, 5 * 60 * 1000);
+
+            interval = setInterval(poll, 2_000);
+            void poll();
         },
         cancel() {
-            waiters.delete(documentId);
+            closed = true;
+            if (interval) clearInterval(interval);
+            if (timeout) clearTimeout(timeout);
+            logDocumentEvent('stream', 'client disconnected', {
+                documentId,
+                pollCount,
+            });
         },
     });
 
