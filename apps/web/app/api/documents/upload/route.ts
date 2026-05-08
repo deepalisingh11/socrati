@@ -1,11 +1,22 @@
 import { NextRequest } from 'next/server';
-import { parsePDFFromBuffer } from '@/lib/parser';
-import { chunkDocument } from '@/lib/chunker';
-import { embedChunksStrict } from '@/lib/embedder';
-import { notifyDocumentComplete } from '@/lib/waiters';
+import { getDocumentQueue } from '@/lib/queue';
+import { createDocument, updateParseStatus } from '@/lib/repository';
+import { createClient } from '@/lib/supabase/server';
+
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return Response.json({ message: 'Unauthorized' }, { status: 401 });
+    }
+
     const formData = await req.formData();
     const file = formData.get('file') as File;
 
@@ -13,37 +24,34 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: 'No file provided' }, { status: 400 });
     }
 
-    // Generate a simple ID for this document
     const documentId = crypto.randomUUID();
+    const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Run the pipeline in the background so we can return documentId immediately
-    (async () => {
-      try {
-        const buffer = Buffer.from(await file.arrayBuffer());
-        const doc = await parsePDFFromBuffer(buffer);
-        const chunks = await chunkDocument(doc);
-        const embedded = await embedChunksStrict(chunks);
+    await createDocument({
+      id: documentId,
+      userId: user.id,
+      title: file.name,
+      fileType: file.type || 'application/octet-stream',
+    });
 
-        // TODO: save `embedded` to your database here
-
-        console.log(`Document ${documentId}: ${embedded.length} chunks ready`);
-        embedded.forEach((chunk, i) => {
-            console.log(`\n--- Chunk ${i} (heading: ${chunk.heading}) ---`);
-            console.log(chunk.content);
-            console.log(`Key terms: ${chunk.keyTerms.join(', ')}`);
-        });
-        notifyDocumentComplete(documentId, 'ready');
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown error';
-        console.error('Pipeline error:', msg);
-        notifyDocumentComplete(documentId, 'failed', msg);
+    try {
+      await getDocumentQueue().add('process-document', {
+        documentId,
+        fileBase64: buffer.toString('base64'),
+        fileName: file.name,
+        fileType: file.type || 'application/octet-stream',
+        userId: user.id,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to enqueue document';
+      await updateParseStatus(documentId, 'failed', msg);
+      throw err;
     }
-    })();
 
-    // Return immediately — UI will poll SSE stream for status
     return Response.json({ documentId });
 
-  } catch {
-    return Response.json({ message: 'Upload failed' }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Upload failed';
+    return Response.json({ message: msg }, { status: 500 });
   }
 }

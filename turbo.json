@@ -1,6 +1,15 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalEnv": [
+    "DOCUMENT_WORKER_CONCURRENCY",
+    "EMBEDDING_MOCK",
+    "GEMINI_API_KEY",
+    "REDIS_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "UPSTASH_REDIS_CONNECTION_STRING",
+    "UPSTASH_REDIS_URL"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
