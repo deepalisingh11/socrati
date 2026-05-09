@@ -84,14 +84,14 @@ export function ChatInput({ input, handleInputChange, handleSubmit, setInput, is
                 />
                 <button
                     type="submit"
-                    disabled={!input.trim() || isLoading}
+                    disabled={!input?.trim() || isLoading}
                     style={{
                         width: 34,
                         height: 34,
                         borderRadius: 9,
                         border: 'none',
-                        background: input.trim() && !isLoading ? 'var(--acc)' : 'var(--b1)',
-                        cursor: input.trim() && !isLoading ? 'pointer' : 'default',
+                        background: input?.trim() && !isLoading ? 'var(--acc)' : 'var(--b1)',
+                        cursor: input?.trim() && !isLoading ? 'pointer' : 'default',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
