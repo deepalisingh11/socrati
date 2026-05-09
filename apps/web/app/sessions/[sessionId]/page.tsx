@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
+import { ChatContainer } from '@/components/chat/ChatContainer';
 
 type SessionDocument = {
     document_id: string;
@@ -142,45 +143,21 @@ export default function SessionPage() {
                     </div>
 
                     {/* Chat area */}
-                    <div
-                        style={{
-                            flex: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '20px 24px',
-                            gap: 12,
-                            color: 'var(--t3)',
-                        }}
-                    >
-                        {!loading && !error && session && (
-                            <>
-                                <div style={{ fontSize: 28 }}>📚</div>
-                                <div
-                                    style={{
-                                        fontSize: 15,
-                                        fontWeight: 500,
-                                        color: 'var(--td)',
-                                    }}
-                                >
-                                    Ready to study
-                                </div>
-                                <div
-                                    style={{
-                                        fontSize: 13,
-                                        textAlign: 'center',
-                                        maxWidth: 320,
-                                        lineHeight: 1.5,
-                                    }}
-                                >
-                                    Your session is set up with {docCount} document
-                                    {docCount !== 1 ? 's' : ''}. AI tutoring will
-                                    appear here.
-                                </div>
-                            </>
-                        )}
-                    </div>
+                    {!loading && !error && session ? (
+                        <ChatContainer sessionId={sessionId} />
+                    ) : (
+                        <div
+                            style={{
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'var(--t3)',
+                            }}
+                        >
+                            {loading ? 'Loading...' : error ? error : ''}
+                        </div>
+                    )}
                 </div>
             </main>
         </div>
