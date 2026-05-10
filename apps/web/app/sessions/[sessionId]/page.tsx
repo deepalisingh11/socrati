@@ -161,7 +161,7 @@ export default function SessionPage() {
                                 id: m.message_id,
                                 role: m.role,
                                 content: m.content
-                            }))}
+                            })) as any}
                         />
                     ) : (
                         <div

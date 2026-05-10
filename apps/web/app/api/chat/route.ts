@@ -1,14 +1,14 @@
 import { retrieveContext } from '@/lib/rag';
 import { buildSystemPrompt } from '@/lib/prompts';
 import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
-import { streamText, createUIMessageStream, createUIMessageStreamResponse, generateId } from 'ai';
+import { streamText } from 'ai';
 import { createGroq } from '@ai-sdk/groq';
 import { loadEnvFiles } from '@/lib/load-env';
+import { performWebSearch } from '@/lib/web-agent';
 
 export async function POST(req: Request) {
-    loadEnvFiles(); // Ensures root .env.local is loaded in the Next.js API route context
+    loadEnvFiles();
     const body = await req.json();
     const { messages, documentIds, sessionId } = body;
 
@@ -26,6 +26,8 @@ export async function POST(req: Request) {
     const { data: { session } } = await supabase.auth.getSession();
     const accessToken = session?.access_token;
 
+    console.log("📥 [RAW MESSAGES FROM CLIENT]:", JSON.stringify(messages, null, 2));
+
     // Retrieve RAG context for the latest user message
     const lastUserMessage = [...messages].reverse().find((m: { role: string }) => m.role === 'user');
     const context = lastUserMessage
@@ -40,6 +42,16 @@ export async function POST(req: Request) {
     console.log("==================== CHUNKS ===========================");
     console.log(context || "No relevant chunks found.");
     console.log("=======================================================\n");
+
+    // If RAG returned nothing, call Tavily directly — no LLM tool calling needed
+    let webSearchResults = '';
+    let webSearchUsed = false;
+    if (!context.trim() && lastUserMessage) {
+        console.log(`\n🌐 [WEB AGENT] RAG returned 0 chunks. Searching for: "${lastUserMessage.content}"`);
+        webSearchResults = await performWebSearch(lastUserMessage.content);
+        webSearchUsed = true;
+        console.log(`✅ [WEB AGENT] Search complete. Results preview:\n${webSearchResults.substring(0, 300)}...\n`);
+    }
 
     const userId = session?.user?.id;
     console.log("💡 TRYING TO SAVE MESSAGE - userId:", userId, "sessionId:", sessionId, "hasLastMessage:", !!lastUserMessage);
@@ -60,35 +72,34 @@ export async function POST(req: Request) {
         }
     }
 
-    // Manually convert UIMessage[] → ModelMessage[]
-    // @ai-sdk/react v3 sends mixed format: user messages use `content`, assistant messages use `parts`
-    // convertToModelMessages() crashes on this hybrid format, so we handle it ourselves.
+    // Convert UIMessage[] → CoreMessage[] for Groq
+    // assistant messages may use parts[] (streaming) or content string (hydrated from DB)
     const modelMessages = (messages as any[])
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => {
-            if (m.role === 'user') {
-                return { role: 'user' as const, content: String(m.content ?? '') };
-            }
-            // Assistant: extract text from parts array
-            const text = (m.parts as any[] | undefined)
-                ?.filter((p) => p.type === 'text')
-                .map((p) => p.text as string)
-                .join('') ?? String(m.content ?? '');
-            return { role: 'assistant' as const, content: text };
-        })
-        .filter((m) => m.content.length > 0);
+            const isUser = m.role === 'user';
+            const text = isUser
+                ? (m.content as string)
+                : (m.parts as { type: string; text?: string }[] | undefined)
+                    ?.filter((p: any) => p.type === 'text')
+                    .map((p: any) => p.text ?? '')
+                    .join('') || (m.content as string) || '';
+            return { role: m.role as 'user' | 'assistant', content: text };
+        });
+
+    console.log("📝 [CORE MESSAGES]:", JSON.stringify(modelMessages, null, 2));
 
     // Stream Socratic response from Groq (Llama 3.3 70B)
     const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! });
 
     const result = streamText({
-        model: groq('llama-3.3-70b-versatile'),
-        system: buildSystemPrompt(context),
+        // Use the larger model if web results are involved to ensure the hidden tag is included
+        model: webSearchUsed ? groq('llama-3.3-70b-versatile') : groq('llama-3.1-8b-instant'),
+        system: buildSystemPrompt(context, webSearchResults || undefined),
         messages: modelMessages,
         onFinish: async ({ text }) => {
             if (userId && sessionId && text) {
                 console.log("⏳ AWAITING DB INSERT FOR ASSISTANT MESSAGE...");
-                // Use the already authenticated `supabase` client
                 const { error } = await supabase.from('messages').insert({
                     session_id: sessionId,
                     user_id: userId,
@@ -104,21 +115,6 @@ export async function POST(req: Request) {
         }
     });
 
-    // Convert to UI Message Stream protocol expected by @ai-sdk/react v3 sendMessage
-    const textId = generateId();
-    const stream = createUIMessageStream({
-        execute: async ({ writer }) => {
-            writer.write({ type: 'text-start', id: textId });
-            for await (const chunk of result.textStream) {
-                writer.write({ type: 'text-delta', delta: chunk, id: textId });
-            }
-            writer.write({ type: 'text-end', id: textId });
-        },
-        onError: (error) => {
-            console.error('🔴 Stream error:', error);
-            return 'An error occurred while generating the response.';
-        },
-    });
-
-    return createUIMessageStreamResponse({ stream });
+    console.log("🚀 [STREAM] Sending UI message stream to client...");
+    return result.toUIMessageStreamResponse();
 }
