@@ -10,7 +10,7 @@ export function getSupabaseClient(accessToken?: string) {
     loadEnvFiles();
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL is missing.');
-    
+
     if (accessToken) {
         const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
         if (!anonKey) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is missing.');
@@ -53,7 +53,7 @@ export async function retrieveContext(
 
     // 2. Query the database securely using the RPC function
     const supabase = getSupabaseClient(accessToken);
-    
+
     const { data: chunks, error } = await supabase.rpc('match_document_chunks', {
         // pgvector functions often prefer raw arrays or stringified JSON arrays
         query_embedding: JSON.stringify(embedding),
@@ -66,12 +66,16 @@ export async function retrieveContext(
         throw new Error(`Failed to retrieve document chunks: ${error.message}`);
     }
 
-    if (!chunks || chunks.length === 0) {
+    // 3. Format the returned chunks into a readable string for the LLM
+    // Filter by similarity threshold to avoid irrelevant 'noise'
+    const THRESHOLD = 0.7;
+    const relevantChunks = chunks.filter((chunk: any) => chunk.similarity >= THRESHOLD);
+
+    if (relevantChunks.length === 0) {
         return '';
     }
 
-    // 3. Format the returned chunks into a readable string for the LLM
-    const formattedContext = chunks.map((chunk: any) => {
+    const formattedContext = relevantChunks.map((chunk: any) => {
         return `[Source Context (Similarity: ${(chunk.similarity * 100).toFixed(1)}%)]:\n${chunk.content}`;
     }).join('\n\n---\n\n');
 

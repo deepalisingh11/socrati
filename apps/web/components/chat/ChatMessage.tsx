@@ -5,11 +5,19 @@ export function ChatMessage({ message }: { message: UIMessage }) {
 
     // ai v6: streamed assistant messages might use `parts`, but DB hydrated messages use `content`
     const text = isUser
-        ? (message.content as string)
-        : (message.parts as { type: string; text?: string }[] | undefined)
-            ?.filter((p) => p.type === 'text')
-            .map((p) => p.text ?? '')
-            .join('') || (message.content as string) || '';
+        ? ((message as any).content as string)
+        : ((message as any).parts as { type: string; text?: string }[] | undefined)
+            ?.filter((p: any) => p.type === 'text')
+            .map((p: any) => p.text ?? '')
+            .join('') || ((message as any).content as string) || '';
+
+    // Detect and strip hidden web search signal
+    const WEB_SEARCH_TAG = '<!-- web_search_used -->';
+    const hasSearchTag = text.includes(WEB_SEARCH_TAG);
+    const cleanedText = text.replace(WEB_SEARCH_TAG, '').trim();
+
+    // Server sends annotation in some versions, or we use the text tag as a fallback
+    const webSearchUsed = hasSearchTag || (message as any).annotations?.some((a: any) => a.webSearchUsed === true);
 
     return (
         <div style={{
@@ -27,8 +35,26 @@ export function ChatMessage({ message }: { message: UIMessage }) {
                 color: isUser ? '#eef8f2' : 'var(--td)',
                 whiteSpace: 'pre-wrap',
             }}>
-                {text}
+                {webSearchUsed && (
+                    <div style={{
+                        fontSize: 11,
+                        padding: '4px 8px',
+                        background: 'var(--b1)',
+                        borderRadius: 6,
+                        marginBottom: text ? 10 : 0,
+                        color: 'var(--ts)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontWeight: 500,
+                        border: '1px solid var(--b2)'
+                    }}>
+                        🌐 Web Search Used
+                    </div>
+                )}
+                {cleanedText}
             </div>
         </div>
     );
 }
+

@@ -1,6 +1,7 @@
 'use client';
 
-import { useChat, type Message } from '@ai-sdk/react';
+import { useChat } from '@ai-sdk/react';
+import type { UIMessage as Message } from 'ai';
 import { useEffect, useRef, useState } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -25,12 +26,12 @@ export function ChatContainer({
         id: 'opening-msg',
         role: 'assistant',
         content: "I've looked through your uploaded material. Before we dive in — what topic feels least solid to you right now?"
-    };
+    } as any;
 
     const { messages, setMessages, sendMessage, status } = useChat({
         id: sessionId,
         api: '/api/chat',
-    });
+    } as any);
 
     // Explicitly hydrate state (bypasses initialMessages reference bugs in some AI SDK versions)
     useEffect(() => {
@@ -57,7 +58,7 @@ export function ChatContainer({
         if (!input.trim() || isLoading) return;
         // sendMessage's second arg (ChatRequestOptions) has a body field — use it!
         void sendMessage(
-            { role: 'user', content: input.trim() },
+            { role: 'user', content: input.trim() } as any,
             { body: { sessionId, documentIds: documentIdsRef.current } }
         );
         setInput('');
