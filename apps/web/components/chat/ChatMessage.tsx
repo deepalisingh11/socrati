@@ -1,8 +1,16 @@
-import type { Message } from '@ai-sdk/react';
+import type { UIMessage } from 'ai';
 
-export function ChatMessage({ message }: { message: Message }) {
+export function ChatMessage({ message }: { message: UIMessage }) {
     const isUser = message.role === 'user';
-    
+
+    // ai v6: user messages use `content` (string), assistant messages use `parts` (array)
+    const text = isUser
+        ? (message.content as string)
+        : (message.parts as { type: string; text?: string }[] | undefined)
+            ?.filter((p) => p.type === 'text')
+            .map((p) => p.text ?? '')
+            .join('') ?? '';
+
     return (
         <div style={{
             display: 'flex',
@@ -19,7 +27,7 @@ export function ChatMessage({ message }: { message: Message }) {
                 color: isUser ? '#eef8f2' : 'var(--td)',
                 whiteSpace: 'pre-wrap',
             }}>
-                {message.content}
+                {text}
             </div>
         </div>
     );
