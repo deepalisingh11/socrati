@@ -1,6 +1,7 @@
 import { retrieveContext } from '@/lib/rag';
 import { buildSystemPrompt } from '@/lib/prompts';
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { streamText, createUIMessageStream, createUIMessageStreamResponse, generateId } from 'ai';
 import { createGroq } from '@ai-sdk/groq';
@@ -9,7 +10,7 @@ import { loadEnvFiles } from '@/lib/load-env';
 export async function POST(req: Request) {
     loadEnvFiles(); // Ensures root .env.local is loaded in the Next.js API route context
     const body = await req.json();
-    const { messages, documentIds } = body;
+    const { messages, documentIds, sessionId } = body;
 
     // 🔎 DIAGNOSTIC
     console.log("\n🔎 FULL BODY KEYS:", Object.keys(body));
@@ -40,6 +41,25 @@ export async function POST(req: Request) {
     console.log(context || "No relevant chunks found.");
     console.log("=======================================================\n");
 
+    const userId = session?.user?.id;
+    console.log("💡 TRYING TO SAVE MESSAGE - userId:", userId, "sessionId:", sessionId, "hasLastMessage:", !!lastUserMessage);
+
+    // Save user message to database
+    if (userId && sessionId && lastUserMessage) {
+        console.log("⏳ AWAITING DB INSERT FOR USER MESSAGE...");
+        const { error } = await supabase.from('messages').insert({
+            session_id: sessionId,
+            user_id: userId,
+            role: 'user',
+            content: lastUserMessage.content
+        });
+        if (error) {
+            console.error('🔴 Failed to save user message:', error);
+        } else {
+            console.log("✅ USER MESSAGE SAVED!");
+        }
+    }
+
     // Manually convert UIMessage[] → ModelMessage[]
     // @ai-sdk/react v3 sends mixed format: user messages use `content`, assistant messages use `parts`
     // convertToModelMessages() crashes on this hybrid format, so we handle it ourselves.
@@ -65,6 +85,23 @@ export async function POST(req: Request) {
         model: groq('llama-3.3-70b-versatile'),
         system: buildSystemPrompt(context),
         messages: modelMessages,
+        onFinish: async ({ text }) => {
+            if (userId && sessionId && text) {
+                console.log("⏳ AWAITING DB INSERT FOR ASSISTANT MESSAGE...");
+                // Use the already authenticated `supabase` client
+                const { error } = await supabase.from('messages').insert({
+                    session_id: sessionId,
+                    user_id: userId,
+                    role: 'assistant',
+                    content: text
+                });
+                if (error) {
+                    console.error('🔴 Failed to save assistant message:', error);
+                } else {
+                    console.log("✅ ASSISTANT MESSAGE SAVED!");
+                }
+            }
+        }
     });
 
     // Convert to UI Message Stream protocol expected by @ai-sdk/react v3 sendMessage

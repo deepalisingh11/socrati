@@ -3,13 +3,13 @@ import type { UIMessage } from 'ai';
 export function ChatMessage({ message }: { message: UIMessage }) {
     const isUser = message.role === 'user';
 
-    // ai v6: user messages use `content` (string), assistant messages use `parts` (array)
+    // ai v6: streamed assistant messages might use `parts`, but DB hydrated messages use `content`
     const text = isUser
         ? (message.content as string)
         : (message.parts as { type: string; text?: string }[] | undefined)
             ?.filter((p) => p.type === 'text')
             .map((p) => p.text ?? '')
-            .join('') ?? '';
+            .join('') || (message.content as string) || '';
 
     return (
         <div style={{

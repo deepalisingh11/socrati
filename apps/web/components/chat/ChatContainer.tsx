@@ -1,11 +1,19 @@
 'use client';
 
-import { useChat } from '@ai-sdk/react';
+import { useChat, type Message } from '@ai-sdk/react';
 import { useEffect, useRef, useState } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 
-export function ChatContainer({ sessionId, documentIds }: { sessionId: string; documentIds: string[] }) {
+export function ChatContainer({ 
+    sessionId, 
+    documentIds,
+    initialMessages = []
+}: { 
+    sessionId: string; 
+    documentIds: string[];
+    initialMessages?: Message[];
+}) {
     const [input, setInput] = useState('');
     
     // useRef ensures the fetch interceptor always reads the LATEST documentIds,
@@ -13,16 +21,24 @@ export function ChatContainer({ sessionId, documentIds }: { sessionId: string; d
     const documentIdsRef = useRef<string[]>(documentIds);
     useEffect(() => { documentIdsRef.current = documentIds; }, [documentIds]);
 
-    const { messages, sendMessage, status } = useChat({
+    const defaultMessage: Message = {
+        id: 'opening-msg',
+        role: 'assistant',
+        content: "I've looked through your uploaded material. Before we dive in — what topic feels least solid to you right now?"
+    };
+
+    const { messages, setMessages, sendMessage, status } = useChat({
+        id: sessionId,
         api: '/api/chat',
-        initialMessages: [
-            {
-                id: 'opening-msg',
-                role: 'assistant',
-                content: "I've looked through your uploaded material. Before we dive in — what topic feels least solid to you right now?"
-            }
-        ]
     });
+
+    // Explicitly hydrate state (bypasses initialMessages reference bugs in some AI SDK versions)
+    useEffect(() => {
+        if (messages.length === 0) {
+            const initial = initialMessages && initialMessages.length > 0 ? initialMessages : [defaultMessage];
+            setMessages(initial);
+        }
+    }, [initialMessages, messages.length, setMessages]);
 
     const isLoading = status === 'submitted' || status === 'streaming';
     const bottomRef = useRef<HTMLDivElement>(null);

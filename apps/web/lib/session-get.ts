@@ -11,6 +11,13 @@ export type SessionRow = {
     created_at: string;
 };
 
+export type MessageRow = {
+    message_id: string;
+    role: string;
+    content: string;
+    created_at: string;
+};
+
 export type SessionDocumentRow = {
     document_id: string;
     title: string;
@@ -117,12 +124,26 @@ export async function handleSessionGet(
         return Response.json({ message: docsError.message }, { status: 500 });
     }
 
+    logSessionEvent('get', 'fetching session messages', { sessionId });
+
+    // Using `any` cast to avoid complex Supabase type instantiation limits in this helper
+    const { data: messages, error: messagesError } = await (supabase.from('messages') as any)
+        .select('message_id, role, content, created_at')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true });
+
+    if (messagesError) {
+        logSessionError('get', 'messages query failed', messagesError, { sessionId });
+        return Response.json({ message: messagesError.message }, { status: 500 });
+    }
+
     logSessionEvent('get', 'session fetched', {
         sessionId,
         userId: user.id,
         documentCount: documents?.length ?? 0,
+        messageCount: messages?.length ?? 0,
         elapsedMs: Date.now() - startedAt,
     });
 
-    return Response.json({ session, documents: documents ?? [] });
+    return Response.json({ session, documents: documents ?? [], messages: messages ?? [] });
 }

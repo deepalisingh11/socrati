@@ -12,6 +12,13 @@ type SessionDocument = {
     parse_status: string;
 };
 
+type SessionMessage = {
+    message_id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    created_at: string;
+};
+
 type SessionData = {
     session_id: string;
     user_id: string;
@@ -23,6 +30,7 @@ export default function SessionPage() {
     const { sessionId } = useParams<{ sessionId: string }>();
     const [session, setSession] = useState<SessionData | null>(null);
     const [documents, setDocuments] = useState<SessionDocument[]>([]);
+    const [messages, setMessages] = useState<SessionMessage[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -40,11 +48,13 @@ export default function SessionPage() {
                 return res.json() as Promise<{
                     session: SessionData;
                     documents: SessionDocument[];
+                    messages: SessionMessage[];
                 }>;
             })
-            .then(({ session, documents }) => {
+            .then(({ session, documents, messages }) => {
                 setSession(session);
                 setDocuments(documents);
+                setMessages(messages);
             })
             .catch((err: unknown) => {
                 setError(err instanceof Error ? err.message : 'Failed to load session');
@@ -146,7 +156,12 @@ export default function SessionPage() {
                     {!loading && !error && session ? (
                         <ChatContainer 
                             sessionId={sessionId} 
-                            documentIds={documents.map(d => d.document_id)} 
+                            documentIds={documents.map(d => d.document_id)}
+                            initialMessages={messages.map(m => ({
+                                id: m.message_id,
+                                role: m.role,
+                                content: m.content
+                            }))}
                         />
                     ) : (
                         <div
