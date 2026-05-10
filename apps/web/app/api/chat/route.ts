@@ -1,73 +1,87 @@
 import { retrieveContext } from '@/lib/rag';
-import { loadEnvFiles } from '@/lib/load-env';
+import { buildSystemPrompt } from '@/lib/prompts';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { streamText, createUIMessageStream, createUIMessageStreamResponse, generateId } from 'ai';
+import { createGroq } from '@ai-sdk/groq';
+import { loadEnvFiles } from '@/lib/load-env';
 
 export async function POST(req: Request) {
+    loadEnvFiles(); // Ensures root .env.local is loaded in the Next.js API route context
     const body = await req.json();
     const { messages, documentIds } = body;
-    
-    // 🔎 DIAGNOSTIC: Print EVERY key in the body to find where documentIds goes
+
+    // 🔎 DIAGNOSTIC
     console.log("\n🔎 FULL BODY KEYS:", Object.keys(body));
     console.log("🔎 documentIds:", documentIds);
-    
-    const lastMessage = messages[messages.length - 1];
-    
-    // Quick local verification: Fetch RAG chunks
-    if (lastMessage && lastMessage.role === 'user') {
-        try {
-            loadEnvFiles();
-            
-            // Get the authenticated user's access token so RLS works correctly
-            const cookieStore = await cookies();
-            const supabase = createServerClient(
-                process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-                { cookies: { getAll: () => cookieStore.getAll() } }
-            );
-            const { data: { session } } = await supabase.auth.getSession();
-            const accessToken = session?.access_token;
-            
-            console.log("\n=======================================================");
-            console.log("🔍 FETCHING RAG CONTEXT FOR: ", lastMessage.content);
-            console.log("📄 USING DOCUMENT IDS: ", documentIds);
-            console.log("🔑 HAS ACCESS TOKEN: ", !!accessToken);
-            const context = await retrieveContext(lastMessage.content, documentIds || [], accessToken);
 
-            console.log("==================== RESULTS ==========================");
-            console.log(context || "No relevant chunks found.");
-            console.log("=======================================================\n");
-        } catch (e) {
-            console.error("RAG Test Error:", e);
-        }
-    }
+    // Extract user JWT from cookies so RLS is enforced in retrieveContext
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { getAll: () => cookieStore.getAll() } }
+    );
+    const { data: { session } } = await supabase.auth.getSession();
+    const accessToken = session?.access_token;
 
-    // Check if this is the first interaction
-    const isFirstMessage = !messages || messages.length === 0;
-    
-    const mockResponseText = isFirstMessage 
-        ? "I've looked through your uploaded material. Before we dive in — what topic feels least solid to you right now?"
-        : "That's an interesting perspective! To help me understand your thought process better, how does that connect back to the main themes in the document?";
+    // Retrieve RAG context for the latest user message
+    const lastUserMessage = [...messages].reverse().find((m: { role: string }) => m.role === 'user');
+    const context = lastUserMessage
+        ? await retrieveContext(lastUserMessage.content, documentIds || [], accessToken)
+        : '';
 
-    // Create a native ReadableStream to simulate a typing effect
-    const stream = new ReadableStream({
-        async start(controller) {
-            const encoder = new TextEncoder();
-            const words = mockResponseText.split(' ');
-            
-            for (const word of words) {
-                // Send the word plus a space
-                controller.enqueue(encoder.encode(word + ' '));
-                // Wait 50ms to simulate the AI "thinking" and streaming
-                await new Promise(resolve => setTimeout(resolve, 50));
+    // Log retrieved chunks to terminal
+    console.log("\n=======================================================");
+    console.log("🔍 RAG CONTEXT FOR:", lastUserMessage?.content);
+    console.log("📄 DOCUMENT IDS:", documentIds);
+    console.log("🔑 HAS ACCESS TOKEN:", !!accessToken);
+    console.log("==================== CHUNKS ===========================");
+    console.log(context || "No relevant chunks found.");
+    console.log("=======================================================\n");
+
+    // Manually convert UIMessage[] → ModelMessage[]
+    // @ai-sdk/react v3 sends mixed format: user messages use `content`, assistant messages use `parts`
+    // convertToModelMessages() crashes on this hybrid format, so we handle it ourselves.
+    const modelMessages = (messages as any[])
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => {
+            if (m.role === 'user') {
+                return { role: 'user' as const, content: String(m.content ?? '') };
             }
-            controller.close();
-        }
+            // Assistant: extract text from parts array
+            const text = (m.parts as any[] | undefined)
+                ?.filter((p) => p.type === 'text')
+                .map((p) => p.text as string)
+                .join('') ?? String(m.content ?? '');
+            return { role: 'assistant' as const, content: text };
+        })
+        .filter((m) => m.content.length > 0);
+
+    // Stream Socratic response from Groq (Llama 3.3 70B)
+    const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! });
+
+    const result = streamText({
+        model: groq('llama-3.3-70b-versatile'),
+        system: buildSystemPrompt(context),
+        messages: modelMessages,
     });
 
-    return new Response(stream, {
-        headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-        }
+    // Convert to UI Message Stream protocol expected by @ai-sdk/react v3 sendMessage
+    const textId = generateId();
+    const stream = createUIMessageStream({
+        execute: async ({ writer }) => {
+            writer.write({ type: 'text-start', id: textId });
+            for await (const chunk of result.textStream) {
+                writer.write({ type: 'text-delta', delta: chunk, id: textId });
+            }
+            writer.write({ type: 'text-end', id: textId });
+        },
+        onError: (error) => {
+            console.error('🔴 Stream error:', error);
+            return 'An error occurred while generating the response.';
+        },
     });
+
+    return createUIMessageStreamResponse({ stream });
 }

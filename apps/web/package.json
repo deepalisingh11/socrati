@@ -13,6 +13,7 @@
     "check-types": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/groq": "^3.0.39",
     "@ai-sdk/react": "^3.0.179",
     "@langchain/textsplitters": "^1.0.1",
     "@repo/ui": "*",
