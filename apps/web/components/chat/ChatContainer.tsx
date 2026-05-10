@@ -5,12 +5,16 @@ import { useEffect, useRef, useState } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 
-export function ChatContainer({ sessionId }: { sessionId: string }) {
+export function ChatContainer({ sessionId, documentIds }: { sessionId: string; documentIds: string[] }) {
     const [input, setInput] = useState('');
+    
+    // useRef ensures the fetch interceptor always reads the LATEST documentIds,
+    // even though useChat's closure is only created once on mount.
+    const documentIdsRef = useRef<string[]>(documentIds);
+    useEffect(() => { documentIdsRef.current = documentIds; }, [documentIds]);
 
     const { messages, sendMessage, status } = useChat({
         api: '/api/chat',
-        body: { sessionId },
         initialMessages: [
             {
                 id: 'opening-msg',
@@ -35,8 +39,11 @@ export function ChatContainer({ sessionId }: { sessionId: string }) {
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (!input.trim() || isLoading) return;
-        // The newest Vercel AI SDK uses 'sendMessage' instead of 'append' or 'handleSubmit'!
-        sendMessage({ role: 'user', content: input.trim() });
+        // sendMessage's second arg (ChatRequestOptions) has a body field — use it!
+        void sendMessage(
+            { role: 'user', content: input.trim() },
+            { body: { sessionId, documentIds: documentIdsRef.current } }
+        );
         setInput('');
     };
 
