@@ -37,3 +37,12 @@ body {
   color: var(--td);
   -webkit-font-smoothing: antialiased;
 }
+
+.session-card {
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.session-card:hover {
+  border-color: var(--acc) !important;
+  transform: translateY(-2px);
+}
