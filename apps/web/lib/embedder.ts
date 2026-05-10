@@ -129,3 +129,24 @@ export async function embedChunksStrict(chunks: Chunk[]): Promise<EmbeddedChunk[
 
     return embedded;
 }
+
+// ---------------------------------------------------------------------------
+// Single query embedder (for RAG chat pipeline)
+// ---------------------------------------------------------------------------
+
+export async function embedQuery(query: string): Promise<number[]> {
+    const useMock = process.env.EMBEDDING_MOCK === "true";
+
+    if (useMock) {
+        console.warn("[embedder] EMBEDDING_MOCK=true — using fake vectors for query.");
+        return mockEmbedding(query);
+    }
+
+    const embeddings = await fetchEmbeddings([query]);
+    
+    if (!embeddings[0] || embeddings[0].length !== EMBEDDING_DIM) {
+        throw new Error(`Query embedding failed or dimension mismatch: expected ${EMBEDDING_DIM}, got ${embeddings[0]?.length}`);
+    }
+    
+    return embeddings[0];
+}

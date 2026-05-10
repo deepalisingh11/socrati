@@ -144,7 +144,10 @@ export default function SessionPage() {
 
                     {/* Chat area */}
                     {!loading && !error && session ? (
-                        <ChatContainer sessionId={sessionId} />
+                        <ChatContainer 
+                            sessionId={sessionId} 
+                            documentIds={documents.map(d => d.document_id)} 
+                        />
                     ) : (
                         <div
                             style={{

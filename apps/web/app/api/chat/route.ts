@@ -1,5 +1,46 @@
+import { retrieveContext } from '@/lib/rag';
+import { loadEnvFiles } from '@/lib/load-env';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+
 export async function POST(req: Request) {
-    const { messages } = await req.json();
+    const body = await req.json();
+    const { messages, documentIds } = body;
+    
+    // 🔎 DIAGNOSTIC: Print EVERY key in the body to find where documentIds goes
+    console.log("\n🔎 FULL BODY KEYS:", Object.keys(body));
+    console.log("🔎 documentIds:", documentIds);
+    
+    const lastMessage = messages[messages.length - 1];
+    
+    // Quick local verification: Fetch RAG chunks
+    if (lastMessage && lastMessage.role === 'user') {
+        try {
+            loadEnvFiles();
+            
+            // Get the authenticated user's access token so RLS works correctly
+            const cookieStore = await cookies();
+            const supabase = createServerClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+                { cookies: { getAll: () => cookieStore.getAll() } }
+            );
+            const { data: { session } } = await supabase.auth.getSession();
+            const accessToken = session?.access_token;
+            
+            console.log("\n=======================================================");
+            console.log("🔍 FETCHING RAG CONTEXT FOR: ", lastMessage.content);
+            console.log("📄 USING DOCUMENT IDS: ", documentIds);
+            console.log("🔑 HAS ACCESS TOKEN: ", !!accessToken);
+            const context = await retrieveContext(lastMessage.content, documentIds || [], accessToken);
+
+            console.log("==================== RESULTS ==========================");
+            console.log(context || "No relevant chunks found.");
+            console.log("=======================================================\n");
+        } catch (e) {
+            console.error("RAG Test Error:", e);
+        }
+    }
 
     // Check if this is the first interaction
     const isFirstMessage = !messages || messages.length === 0;
