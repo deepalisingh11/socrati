@@ -12,8 +12,8 @@ import {
 const originalConsole = { log: console.log, error: console.error };
 
 before(() => {
-    console.log = () => {};
-    console.error = () => {};
+    console.log = () => { };
+    console.error = () => { };
 });
 
 after(() => {
@@ -73,6 +73,12 @@ function createDeps(options?: {
                                                 error: options?.sessionError ?? null,
                                             };
                                         },
+                                        order(_col: string, _opts?: any) {
+                                            return {
+                                                data: options?.messages ?? [],
+                                                error: options?.messagesError ?? null,
+                                            };
+                                        }
                                     };
                                 },
                                 async in(_col: string, _vals: string[]) {
@@ -211,6 +217,21 @@ describe('handleSessionGet', () => {
         assert.equal(returnedSession.user_id, 'user-qrs');
         assert.deepEqual(returnedSession.document_ids, ['doc-a']);
         assert.equal(returnedSession.created_at, '2025-06-01T12:00:00Z');
+    });
+
+    it('returns messages fetched from the database', async () => {
+        const session = makeSession();
+        const mockMessages = [
+            { message_id: 'msg-1', role: 'user', content: 'hello', created_at: '2025-01-01T00:00:00Z' },
+            { message_id: 'msg-2', role: 'assistant', content: 'hi there', created_at: '2025-01-01T00:00:01Z' }
+        ];
+        const deps = createDeps({ session, messages: mockMessages });
+
+        const res = await handleSessionGet(makeRequest(), 'sess-001', deps);
+
+        assert.equal(res.status, 200);
+        const body = await readJson(res);
+        assert.deepEqual(body.messages, mockMessages);
     });
 
     it('returns null documents as an empty array', async () => {
