@@ -4,14 +4,17 @@ import { isAllowedDomain } from '@/lib/supabase/domains';
 import { handleAuthCallback } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
-    const { searchParams, origin } = new URL(request.url);
+    const { searchParams } = new URL(request.url);
     const supabase = await createClient();
+
+    const next = searchParams.get('next');
+    const origin = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 
     const destination = await handleAuthCallback(
         {
             code: searchParams.get('code'),
             error: searchParams.get('error'),
-            next: searchParams.get('next'),
+            next: next === 'null' || !next ? '/session/new' : next,
             origin,
         },
         {
