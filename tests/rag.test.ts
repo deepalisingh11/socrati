@@ -1,6 +1,9 @@
 import { describe, it, mock, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as rag from '../apps/web/lib/rag';
+import ws from 'ws';
+
+(global as any).WebSocket = ws;
 
 describe('RAG Pipeline', () => {
     afterEach(() => {
