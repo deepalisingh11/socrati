@@ -157,6 +157,10 @@ export default function SessionPage() {
                         <ChatContainer 
                             sessionId={sessionId} 
                             documentIds={documents.map(d => d.document_id)}
+                            documents={documents.map((document) => ({
+                                document_id: document.document_id,
+                                title: document.title,
+                            }))}
                             initialMessages={messages.map(m => ({
                                 id: m.message_id,
                                 role: m.role,

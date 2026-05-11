@@ -6,17 +6,26 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
+import { MindMapPanel } from '@/components/mindmap/MindMapPanel';
+
+type ChatDocument = {
+    document_id: string;
+    title: string;
+};
 
 export function ChatContainer({ 
     sessionId, 
     documentIds,
+    documents = [],
     initialMessages = []
 }: { 
     sessionId: string; 
     documentIds: string[];
+    documents?: ChatDocument[];
     initialMessages?: Message[];
 }) {
     const [input, setInput] = useState('');
+    const [showMindMap, setShowMindMap] = useState(false);
     const router = useRouter();
     
     // useRef ensures the fetch interceptor always reads the LATEST documentIds,
@@ -96,6 +105,26 @@ export function ChatContainer({
                 </div>
                 <div style={{ flex: 1 }} />
                 <button
+                    onClick={() => setShowMindMap((visible) => !visible)}
+                    disabled={documents.length === 0}
+                    style={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: documents.length > 0 ? 'var(--acc1)' : 'var(--t3)',
+                        background: showMindMap ? 'var(--acl2)' : 'var(--acl)',
+                        border: '1px solid var(--acl2)',
+                        borderRadius: 8,
+                        padding: '5px 12px',
+                        cursor: documents.length > 0 ? 'pointer' : 'default',
+                        fontFamily: 'inherit',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                    }}
+                >
+                    Mind Map
+                </button>
+                <button
                     onClick={() => router.push(`/sessions/${sessionId}/quiz`)}
                     style={{
                         fontSize: 12,
@@ -144,6 +173,9 @@ export function ChatContainer({
                 setInput={setInput}
                 isLoading={isLoading}
             />
+            {showMindMap && documents.length > 0 && (
+                <MindMapPanel documents={documents} onClose={() => setShowMindMap(false)} />
+            )}
         </div>
     );
 }

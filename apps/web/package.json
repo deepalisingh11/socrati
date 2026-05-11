@@ -21,10 +21,13 @@
     "@supabase/supabase-js": "^2.105.3",
     "ai": "^6.0.177",
     "bullmq": "^5.76.6",
+    "dagre": "^0.8.5",
+    "html2canvas": "^1.4.1",
     "ioredis": "^5.10.1",
     "next": "16.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "reactflow": "^11.11.4",
     "unpdf": "^1.4.0",
     "ws": "^8.20.0",
     "zod": "^4.4.3"
@@ -32,6 +35,7 @@
   "devDependencies": {
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",
+    "@types/dagre": "^0.7.54",
     "@types/node": "^22.15.3",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
