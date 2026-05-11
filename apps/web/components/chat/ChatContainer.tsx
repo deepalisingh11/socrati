@@ -3,6 +3,7 @@
 import { useChat } from '@ai-sdk/react';
 import type { UIMessage as Message } from 'ai';
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 
@@ -16,6 +17,7 @@ export function ChatContainer({
     initialMessages?: Message[];
 }) {
     const [input, setInput] = useState('');
+    const router = useRouter();
     
     // useRef ensures the fetch interceptor always reads the LATEST documentIds,
     // even though useChat's closure is only created once on mount.
@@ -56,7 +58,6 @@ export function ChatContainer({
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (!input.trim() || isLoading) return;
-        // sendMessage's second arg (ChatRequestOptions) has a body field — use it!
         void sendMessage(
             { role: 'user', content: input.trim() } as any,
             { body: { sessionId, documentIds: documentIdsRef.current } }
@@ -71,7 +72,7 @@ export function ChatContainer({
             flexDirection: 'column',
             overflow: 'hidden',
         }}>
-            {/* Header bar from your prototype */}
+            {/* Header bar */}
             <div style={{
                 padding: '14px 24px',
                 borderBottom: '1px solid var(--b1)',
@@ -93,6 +94,26 @@ export function ChatContainer({
                 }}>
                     Socratic mode
                 </div>
+                <div style={{ flex: 1 }} />
+                <button
+                    onClick={() => router.push(`/sessions/${sessionId}/quiz`)}
+                    style={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: 'var(--acc1)',
+                        background: 'var(--acl)',
+                        border: '1px solid var(--acl2)',
+                        borderRadius: 8,
+                        padding: '5px 12px',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                    }}
+                >
+                    📝 Generate quiz
+                </button>
             </div>
 
             {/* Messages Area */}
