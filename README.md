@@ -3,6 +3,10 @@
 a conversational AI tutor.
 
 
+## Build Instructions
+
+![setup instructions](./BUILD.md)
+
 
 ## Using this example
 
