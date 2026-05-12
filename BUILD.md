@@ -150,4 +150,4 @@ VERCEL_PROJECT_ID
 
 To block merges when checks fail, enable branch protection for `main` in GitHub and require the `Lint, type-check, and test` status check.
 
-On push to `main`, the workflow deploys `apps/web` to Vercel production with `amondnet/vercel-action`.
+On push to `main`, the workflow deploys the linked Vercel project to production with `amondnet/vercel-action`. Keep the Vercel project Root Directory set to `apps/web`; the GitHub Action runs from the repository root so Vercel does not resolve the path twice.
