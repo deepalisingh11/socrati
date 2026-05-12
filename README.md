@@ -1,8 +1,17 @@
 # socrati
 
-a conversational AI tutor.
+Socrati is a conversational AI tutor designed to help students learn more effectively from their own study materials. Students upload documents, and Socrati uses them as the basis for an interactive tutoring experience that asks guiding questions rather than simply providing answers, following the Socratic method of teaching. Beyond tutoring, the application can generate practice quizzes, produce visual mind maps of key concepts, track learning progress over time, and fall back to live web search when a question goes beyond the uploaded material.
 
+# Code Structure
+Socrati is organised as a monorepo managed with Turborepo, with all code living under two top-level directories:
 
+- `apps/web`: the main Next.js application, containing all pages, API routes, and the core business logic under `apps/web/lib`. This is where the RAG pipeline, LLM orchestration, quiz generation, mind map generation, authentication, session management, and document processing all live.
+- `packages/ui`: a shared React component library used by the web app.
+- `packages/eslint-config`: shared ESLint configuration used across the monorepo.
+- `packages/typescript-config`: shared TypeScript configuration used across the monorepo.
+- `tests/`: all unit tests, written in TypeScript using Node's built-in test runner. Run with npm run test:coverage.
+
+The entire codebase is written in TypeScript.
 
 ## Using this example
 
