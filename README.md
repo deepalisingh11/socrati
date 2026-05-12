@@ -1,4 +1,4 @@
-# socrati
+# Overview
 
 Socrati is a conversational AI tutor designed to help students learn more effectively from their own study materials. Students upload documents, and Socrati uses them as the basis for an interactive tutoring experience that asks guiding questions rather than simply providing answers, following the Socratic method of teaching. Beyond tutoring, the application can generate practice quizzes, produce visual mind maps of key concepts, track learning progress over time, and fall back to live web search when a question goes beyond the uploaded material.
 
